@@ -272,7 +272,7 @@ pyinstaller --onefile client.py
 Support the project with Bitcoin donations:
 
 ```
-bc1qyourwalletaddresshere
+bc1qlpw590fkykfdd9v92g9snfmx8hc8vwxvkz5npm
 ```
 
 ---
