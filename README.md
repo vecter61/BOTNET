@@ -301,7 +301,3 @@ Thank you for using this tool responsibly!
 
 ```
 
----
-
-If you want me to provide the final `server.py` and `client.py` scripts again to go with this README, just say!
-```
